@@ -3,11 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"time"
 
 	"github.com/shirou/mqagent/metric"
 
 	MQTT "git.eclipse.org/gitroot/paho/org.eclipse.paho.mqtt.golang.git"
-	"time"
+	log "github.com/cihub/seelog"
 )
 
 func pub(client MQTT.MqttClient, qos int, topic string, payload string) {
@@ -48,10 +49,24 @@ func NewMetrics(metrics []metric.MetricConf) []metric.Metric {
 }
 
 func main() {
+	testConfig := `
+<seelog>
+  <outputs formatid="develop">
+    <console />
+    <rollingfile type="size" filename="./log/manyrolls.log" maxsize="100" maxrolls="4" />
+  </outputs>
+  <formats>
+    <format id="develop" format="%Date %Time [%LEV] %Msg%n"/>
+  </formats>
+</seelog>
+`
+	logger, _ := log.LoggerFromConfigAsBytes([]byte(testConfig))
+	log.ReplaceLogger(logger)
+
 	broker := flag.String("broker", "", "The broker URI. ex: tcp://10.10.1.1:1883")
 	password := flag.String("password", "", "The password (optional)")
 	user := flag.String("user", "", "The User (optional)")
-	id := flag.String("id", "", "The ClientID (optional)")
+	clientid := flag.String("id", "", "The ClientID (optional)")
 	//	cleansess := flag.Bool("clean", false, "Set Clean Session (default false)")
 	store := flag.String("store", ":memory:", "The Store Directory (default use memory store)")
 	flag.Parse()
@@ -59,15 +74,17 @@ func main() {
 		fmt.Println("Invalid setting for -broker")
 		return
 	}
-	fmt.Printf("\tbroker:    %s\n", *broker)
-	fmt.Printf("\tclientid:  %s\n", *id)
-	fmt.Printf("\tuser:      %s\n", *user)
-	fmt.Printf("\tpassword:  %s\n", *password)
-	fmt.Printf("\tstore:     %s\n", *store)
+	log.Infof("broker:    %s", *broker)
+	log.Infof("clientid:  %s", *clientid)
+	log.Infof("broker:    %s", *broker)
+	log.Infof("clientid:  %s", *clientid)
+	log.Infof("user:      %s", *user)
+	log.Infof("password:  %s", *password)
+	log.Infof("store:     %s", *store)
 	opts := MQTT.NewClientOptions()
 	opts.SetBroker(*broker)
 	opts.SetTraceLevel(MQTT.Off)
-	opts.SetClientId(*id)
+	opts.SetClientId(*clientid)
 	opts.SetUsername(*user)
 	opts.SetPassword(*password)
 	if *store != ":memory:" {
@@ -108,14 +125,14 @@ func main() {
 		go func(client MQTT.MqttClient, metric metric.Metric) {
 			for {
 				payload, err := metric.Get()
-				if err != nil{
+				if err != nil {
 					continue
 				}
 				conf := metric.GetConf()
 
 				msg := MQTT.NewMessage([]byte(payload))
 				msg.SetQoS(MQTT.QoS(conf.QoS))
-				msg.SetRetainedFlag(true)  // always true
+				msg.SetRetainedFlag(true) // always true
 
 				receipt := client.PublishMessage(conf.Topic, msg)
 				<-receipt
