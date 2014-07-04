@@ -45,3 +45,12 @@ func (m *MQTTTransport) Send(topic string, payload []byte, qos int) error {
 
 	return nil
 }
+
+func (m *MQTTTransport) Subscribe(handler MQTT.MessageHandler, topic string, qos int) (<-chan MQTT.Receipt, error) {
+	topicFilter, err := MQTT.NewTopicFilter(topic, byte(qos))
+	if err != nil {
+		return nil, err
+	}
+
+	return m.Client.StartSubscription(handler, topicFilter)
+}

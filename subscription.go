@@ -26,13 +26,13 @@ type Subscription struct {
 const (
 	TopicRoot     = "/mqvision"
 	RoleSubPrefix = TopicRoot + "/role"
-	RoleSubQos    = MQTT.QOS_TWO
+	RoleSubQos    = 2
 )
 
 func (sub *Subscription) Subscribe(conf *ClientConfig) (chan string, error) {
 	topic := RoleSubPrefix + "/" + sub.Name
 
-	if receipt, err := conf.Transport.Client.StartSubscription(sub.messageHandler,
+	if receipt, err := conf.Transport.Subscribe(sub.messageHandler,
 		topic, RoleSubQos); err != nil {
 		return nil, err
 	} else {
@@ -48,8 +48,7 @@ func (sub *Subscription) Subscribe(conf *ClientConfig) (chan string, error) {
 	return sub.ToMainChan, nil
 }
 
-func (sub *Subscription) messageHandler(msg MQTT.Message) {
-
+func (sub *Subscription) messageHandler(client *MQTT.MqttClient, msg MQTT.Message) {
 	for actionId, metric := range sub.Metrics {
 		metric.Stop()
 		log.Printf("%s Stopped", actionId)
