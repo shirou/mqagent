@@ -2,55 +2,97 @@ package metric
 
 import (
 	"encoding/json"
-	"fmt"
 	"github.com/shirou/gopsutil"
+	"strconv"
 )
 
 type Memory struct {
-	conf MetricConf
-}
-type MemoryStat struct {
-	Stat     gopsutil.VirtualMemoryStat `json:"stat"`
-	ClientID string                     `json:"clientid"`
+	LastMemoryStat *gopsutil.VirtualMemoryStat
 }
 
 type SwapMemory struct {
-	conf MetricConf
+	LastSwapStat *gopsutil.SwapMemoryStat
 }
 
-func NewMemory(mconf MetricConf) (*Memory, error) {
-	return &Memory{conf: mconf}, nil
+func NewMemory() (Memory, error) {
+	return Memory{}, nil
+}
+func NewSwapMemory() (SwapMemory, error) {
+	return SwapMemory{}, nil
 }
 
-func (m *Memory) Get() (string, error) {
-	ret, err := gopsutil.VirtualMemory()
+const (
+	MEMFLOATUNIT  = 1000000.0
+	MEMFLOATCOUNT = 3
+)
+
+func (m Memory) Get() (map[string]string, error) {
+	ret := NewRetJson()
+	v, err := gopsutil.VirtualMemory()
 	if err != nil {
-		return "", err
+		return ret, err
 	}
-	mem := MemoryStat{
-		Stat:     *ret,
-		ClientID: m.conf.Topic,
+
+	m.LastMemoryStat = v
+
+	ret["total"] = strconv.FormatFloat(float64(v.Total)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	ret["available"] = strconv.FormatFloat(float64(v.Available)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	ret["used"] = strconv.FormatFloat(float64(v.Used)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	ret["free"] = strconv.FormatFloat(float64(v.Free)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	ret["active"] = strconv.FormatFloat(float64(v.Active)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	if v.Cached > 0 {
+		ret["cached"] = strconv.FormatFloat(float64(v.Cached)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
 	}
-	s, _ := json.Marshal(mem)
-	fmt.Println(string(s))
+	if v.Wired > 0 {
+		ret["wired"] = strconv.FormatFloat(float64(v.Wired)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	}
 
-	return string(s), nil
-}
-func (m *Memory) GetConf() MetricConf {
-	return m.conf
+	return ret, nil
 }
 
-func NewSwapMemory(mconf MetricConf) (*SwapMemory, error) {
-	return &SwapMemory{conf: mconf}, nil
-}
-
-func (m *SwapMemory) Get() (string, error) {
-	ret, err := gopsutil.SwapMemory()
+func (m SwapMemory) Get() (map[string]string, error) {
+	ret := NewRetJson()
+	v, err := gopsutil.SwapMemory()
 	if err != nil {
-		return "", err
+		return ret, err
 	}
-	return ret.String(), nil
+	m.LastSwapStat = v
+
+	ret["total"] = strconv.FormatFloat(float64(v.Total)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	ret["used"] = strconv.FormatFloat(float64(v.Used)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	ret["free"] = strconv.FormatFloat(float64(v.Free)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	ret["sin"] = strconv.FormatFloat(float64(v.Sin)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	ret["sout"] = strconv.FormatFloat(float64(v.Sout)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+
+	return ret, nil
 }
-func (m *SwapMemory) GetConf() MetricConf {
-	return m.conf
+
+func (m Memory) Emit(metric *Metric) error {
+	j, err := m.Get()
+	if err != nil {
+		return err
+	}
+	topic := metric.TopicRootMetric + metric.ActionId
+	payload, err := json.Marshal(j)
+	if err != nil {
+		return err
+	}
+
+	metric.Client.Send(topic, payload, 0)
+
+	return nil
+}
+func (m SwapMemory) Emit(metric *Metric) error {
+	j, err := m.Get()
+	if err != nil {
+		return err
+	}
+	topic := metric.TopicRootMetric + metric.ActionId
+	payload, err := json.Marshal(j)
+	if err != nil {
+		return err
+	}
+
+	metric.Client.Send(topic, payload, 0)
+	return nil
 }

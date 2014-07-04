@@ -1,0 +1,11 @@
+{
+  "server": "tcp://test.mosquitto.org:1883",
+  "serverauth": {
+    "username": "example",
+	"password": "secret",
+  },
+  "confroot": "/tmp/mqagent",
+  "subscriptions": [
+    "base"
+  ]
+}
