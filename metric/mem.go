@@ -2,23 +2,33 @@ package metric
 
 import (
 	"encoding/json"
-	"github.com/shirou/gopsutil"
 	"strconv"
+	"time"
+
+	"github.com/shirou/gopsutil"
+
+	"github.com/shirou/mqagent/transport"
 )
 
 type Memory struct {
 	LastMemoryStat *gopsutil.VirtualMemoryStat
+	Data           map[string]string
 }
 
 type SwapMemory struct {
 	LastSwapStat *gopsutil.SwapMemoryStat
+	Data         map[string]string
 }
 
 func NewMemory() (Memory, error) {
-	return Memory{}, nil
+	return Memory{
+		Data: make(map[string]string),
+	}, nil
 }
 func NewSwapMemory() (SwapMemory, error) {
-	return SwapMemory{}, nil
+	return SwapMemory{
+		Data: make(map[string]string),
+	}, nil
 }
 
 const (
@@ -26,73 +36,71 @@ const (
 	MEMFLOATCOUNT = 3
 )
 
-func (m Memory) Get() (map[string]string, error) {
-	ret := NewRetJson()
+func (m Memory) Update() error {
 	v, err := gopsutil.VirtualMemory()
 	if err != nil {
-		return ret, err
+		return err
 	}
 
 	m.LastMemoryStat = v
 
-	ret["total"] = strconv.FormatFloat(float64(v.Total)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
-	ret["available"] = strconv.FormatFloat(float64(v.Available)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
-	ret["used"] = strconv.FormatFloat(float64(v.Used)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
-	ret["free"] = strconv.FormatFloat(float64(v.Free)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
-	ret["active"] = strconv.FormatFloat(float64(v.Active)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	m.Data["time"] = strconv.FormatInt(time.Now().Unix(), 10)
+
+	m.Data["total"] = strconv.FormatFloat(float64(v.Total)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	m.Data["available"] = strconv.FormatFloat(float64(v.Available)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	m.Data["used"] = strconv.FormatFloat(float64(v.Used)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	m.Data["free"] = strconv.FormatFloat(float64(v.Free)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	m.Data["active"] = strconv.FormatFloat(float64(v.Active)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
 	if v.Cached > 0 {
-		ret["cached"] = strconv.FormatFloat(float64(v.Cached)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+		m.Data["cached"] = strconv.FormatFloat(float64(v.Cached)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
 	}
 	if v.Wired > 0 {
-		ret["wired"] = strconv.FormatFloat(float64(v.Wired)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+		m.Data["wired"] = strconv.FormatFloat(float64(v.Wired)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
 	}
-
-	return ret, nil
-}
-
-func (m SwapMemory) Get() (map[string]string, error) {
-	ret := NewRetJson()
-	v, err := gopsutil.SwapMemory()
-	if err != nil {
-		return ret, err
-	}
-	m.LastSwapStat = v
-
-	ret["total"] = strconv.FormatFloat(float64(v.Total)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
-	ret["used"] = strconv.FormatFloat(float64(v.Used)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
-	ret["free"] = strconv.FormatFloat(float64(v.Free)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
-	ret["sin"] = strconv.FormatFloat(float64(v.Sin)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
-	ret["sout"] = strconv.FormatFloat(float64(v.Sout)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
-
-	return ret, nil
-}
-
-func (m Memory) Emit(metric *Metric) error {
-	j, err := m.Get()
-	if err != nil {
-		return err
-	}
-	topic := metric.TopicRootMetric + metric.ActionId
-	payload, err := json.Marshal(j)
-	if err != nil {
-		return err
-	}
-
-	metric.Client.Send(topic, payload, 0)
 
 	return nil
 }
-func (m SwapMemory) Emit(metric *Metric) error {
-	j, err := m.Get()
-	if err != nil {
-		return err
-	}
-	topic := metric.TopicRootMetric + metric.ActionId
-	payload, err := json.Marshal(j)
+
+func (m SwapMemory) Update() error {
+	v, err := gopsutil.SwapMemory()
 	if err != nil {
 		return err
 	}
 
-	metric.Client.Send(topic, payload, 0)
+	m.LastSwapStat = v
+
+	m.Data["time"] = strconv.FormatInt(time.Now().Unix(), 10)
+
+	m.Data["total"] = strconv.FormatFloat(float64(v.Total)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	m.Data["used"] = strconv.FormatFloat(float64(v.Used)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	m.Data["free"] = strconv.FormatFloat(float64(v.Free)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	m.Data["sin"] = strconv.FormatFloat(float64(v.Sin)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+	m.Data["sout"] = strconv.FormatFloat(float64(v.Sout)/MEMFLOATUNIT, 'f', MEMFLOATCOUNT, 64)
+
+	return nil
+}
+
+func (m Memory) Emit(to chan transport.Message) error {
+	j, err := json.Marshal(m.Data)
+	if err != nil {
+		return err
+	}
+	to <- transport.Message{
+		Type:        "metric",
+		Destination: "memory",
+		Payload:     j,
+	}
+	return nil
+}
+func (m SwapMemory) Emit(to chan transport.Message) error {
+	j, err := json.Marshal(m.Data)
+	if err != nil {
+		return err
+	}
+	to <- transport.Message{
+		Type:        "metric",
+		Destination: "swap",
+		Payload:     j,
+	}
 	return nil
 }

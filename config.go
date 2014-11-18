@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	log "github.com/Sirupsen/logrus"
+
 	"github.com/shirou/mqagent/transport"
 )
 
@@ -28,6 +30,7 @@ type ClientConfig struct {
 	BrokerUri     string     `json:"server"`
 	ServerAuth    ServerAuth `json:"serverauth"`
 	ConfRoot      string     `json:"confroot"`
+	TopicRoot     string     `json:"topicroot"`
 	SubList       []string   `json:"subscriptions"`
 	Subscriptions []Subscription
 	Transport     *transport.MQTTTransport
@@ -62,7 +65,7 @@ func NewConfig(confPath string) (*ClientConfig, error) {
 
 // setup these.
 // - create directories under the ConfRoot
-// - create hostid if not created
+// - create hostid if not exists
 func (conf *ClientConfig) setup() error {
 	root := conf.ConfRoot
 
@@ -98,6 +101,7 @@ func (conf *ClientConfig) setup() error {
 
 // createHostId creates host id from
 //   md5(hostname + all of ipaddresses + random(10000))
+// then, pick up 8bytes from head.
 // This will stored mqagent directory and used as hostid forever.
 func createHostId() (string, error) {
 	hostname, err := os.Hostname()
@@ -122,5 +126,5 @@ func createHostId() (string, error) {
 	io.WriteString(h, string(rand.Intn(10000)))
 
 	hex := fmt.Sprintf("%x", h.Sum(nil))
-	return hex, nil
+	return hex[:8], nil
 }

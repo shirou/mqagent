@@ -1,7 +1,8 @@
 package transport
 
 type Message struct {
-	Destination string
-	Payload     string
-	Qos         int
+	Type        string // ex: subscribe, metric
+	Destination string // ex: topic
+	Payload     []byte // ex: json
+	Qos         int    // ex: 0
 }

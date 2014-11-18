@@ -5,7 +5,7 @@ import (
 )
 
 type ActionJson struct {
-	ActionId string   `json:"actionid"`
+	Id       string   `json:"id"`
 	Action   string   `json:"action"`
 	Args     []string `json:"args"`
 	Type     string   `json:"type"`
@@ -19,4 +19,9 @@ type ActionJson struct {
 func (a ActionJson) String() string {
 	s, _ := json.Marshal(a)
 	return string(s)
+}
+
+func (a ActionJson) Byte() []byte {
+	s, _ := json.Marshal(a)
+	return s
 }

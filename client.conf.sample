@@ -1,10 +1,11 @@
 {
-  "server": "tcp://test.mosquitto.org:1883",
+  "server":	"tcp://free.mqtt.shiguredo.jp:1883",
   "serverauth": {
-    "username": "example",
+    "username": "shirou@github",
 	"password": "secret",
   },
-  "confroot": "/tmp/mqagent",
+  "confroot": "/etc/mqagent",
+  "topicroot": "shirou@github.com/mqvision",
   "subscriptions": [
     "base"
   ]

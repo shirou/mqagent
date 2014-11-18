@@ -1,63 +1,67 @@
 package metric
 
 import (
-	"fmt"
-	"time"
-
 	"encoding/json"
 	"errors"
+	"time"
+
+	log "github.com/Sirupsen/logrus"
+
 	"github.com/shirou/mqagent/transport"
-	"strconv"
+)
+
+type Updater interface {
+	Update() error
+	Emit(chan transport.Message) error
+}
+
+const (
+	StatusUnknown = iota
+	StatusStopped
+	StatusStarted
 )
 
 type Metric struct {
-	ActionId string   `json:"actionid"`
+	Id       string   `json:"id"`
 	Action   string   `json:"action"`
 	Args     []string `json:"args"`
 	Type     string   `json:"type"`
 	Interval int      `json:"interval"`
-	Ticker   *time.Ticker
 
-	TopicRootMetric string
+	LastUpdated time.Time
+	MetricValue Updater
 
-	HostId      string
-	Client      *transport.MQTTTransport
-	MetricValue MetricValue
+	ToChan chan transport.Message
+	Ticker *time.Ticker
+	HostId string
+	Status int
 }
 
-type MetricValue interface {
-	Emit(*Metric) error
-}
-
-func NewMetric(jsonBuf string,
-	hostId string,
-	client *transport.MQTTTransport,
-	topicRoot string) (*Metric, error) {
+func NewMetric(jsonBuf []byte, hostId string, toChan chan transport.Message) (*Metric, error) {
 	ret := &Metric{
-		HostId:          hostId,
-		Client:          client,
-		TopicRootMetric: topicRoot + "/metrics/" + hostId + "/",
+		HostId: hostId,
+		ToChan: toChan,
 	}
 
-	b := []byte(jsonBuf)
-	err := json.Unmarshal(b, ret)
+	err := json.Unmarshal(jsonBuf, ret)
 	if err != nil {
 		return nil, err
 	}
 
-	// TODO: change to map
-	var m MetricValue
-	switch ret.ActionId {
+	var m Updater
+	switch ret.Action {
 	case "metrics.memory":
 		m, err = NewMemory()
 	case "metrics.swap":
 		m, err = NewSwapMemory()
-	case "metrics.load":
-		m, err = NewLoadAvg()
+		/*
+			case "metrics.load":
+						m, err = NewLoadAvg()
+		*/
 	case "metrics.diskio":
 		m, err = NewDiskIO(ret.Args)
 	default:
-		err := errors.New("No such actionid: " + ret.ActionId)
+		err := errors.New("No such action: " + ret.Action)
 		return nil, err
 	}
 	if err != nil {
@@ -68,28 +72,36 @@ func NewMetric(jsonBuf string,
 	return ret, nil
 }
 
-func (m *Metric) Start(ch chan string) error {
+func (m *Metric) Start() {
 	m.Ticker = time.NewTicker(time.Duration(m.Interval) * time.Second)
 
+	m.Status = StatusStarted
 	tickChan := m.Ticker.C
+
+	// emit first time
+	m.MetricValue.Update()
+	m.MetricValue.Emit(m.ToChan)
 
 	for {
 		select {
 		case <-tickChan:
-			err := m.MetricValue.Emit(m)
+			err := m.MetricValue.Update()
 			if err != nil {
-				// FIXME: logging
+				log.Error(err)
 				continue
 			}
-		case <-ch:
-			fmt.Println("From main routine")
+			err = m.MetricValue.Emit(m.ToChan)
+			if err != nil {
+				log.Error(err)
+				continue
+			}
 		}
 	}
-	return nil
 }
 
 func (m *Metric) Stop() error {
 	m.Ticker.Stop()
+	m.Status = StatusStopped
 	return nil
 }
 
@@ -97,13 +109,4 @@ func (m *Metric) SetInterval(interval int) error {
 	m.Interval = interval
 
 	return nil
-}
-
-func NewRetJson() map[string]string {
-	ret := make(map[string]string, 100)
-
-	utime := time.Now().Unix()
-	ret["time"] = strconv.FormatInt(utime, 10)
-
-	return ret
 }

@@ -1,20 +1,22 @@
 package metric
 
 import (
-	"encoding/json"
 	"github.com/shirou/gopsutil"
+
+	"github.com/shirou/mqagent/transport"
 )
 
 type DiskIO struct {
 	Partitions             []string
 	PrevDiskIOCountersStat map[string]gopsutil.DiskIOCountersStat
+	Data                   map[string]map[string]string
 }
 
 func NewDiskIO(args []string) (DiskIO, error) {
 	return DiskIO{Partitions: args}, nil
 }
 
-func (m DiskIO) Emit(metric *Metric) error {
+func (m DiskIO) Update() error {
 	v, err := gopsutil.DiskIOCounters()
 	if err != nil {
 		return err
@@ -33,22 +35,28 @@ func (m DiskIO) Emit(metric *Metric) error {
 		keys = m.Partitions
 	}
 
-	for _, part := range keys {
-		stat, ok := v[part]
-		if !ok {
-			// FIXME: Logging
-			// log.Printf("disk partiton %s is not exists. skip it", part)
-			continue
-		}
-		// ex: topicroot/metrics.disk.sda
-		topic := metric.TopicRootMetric + metric.ActionId + "." + part
-		payload, err := json.Marshal(stat)
-		if err != nil {
-			return err
-		}
+	return nil
+}
 
-		metric.Client.Send(topic, payload, 0)
-	}
+func (m DiskIO) Emit(ch chan transport.Message) error {
+	/*
+		for _, part := range keys {
+			stat, ok := v[part]
+			if !ok {
+				// FIXME: Logging
+				// log.Printf("disk partiton %s is not exists. skip it", part)
+				continue
+			}
+			// ex: topicroot/metrics.disk.sda
+			topic := metric.TopicRootMetric + metric.ActionId + "." + part
+			payload, err := json.Marshal(stat)
+			if err != nil {
+				return err
+			}
+
+			metric.Client.Send(topic, payload, 0)
+		}
+	*/
 
 	return nil
 }

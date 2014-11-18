@@ -1,24 +1,24 @@
 [
     {
-      "actionid": "metrics.memory",
+      "id": "metrics.memory",
       "action": "metrics.memory",
       "type": "metric",
       "interval": 10
     },
     {
-      "actionid": "metrics.swap",
+      "id": "metrics.swap",
       "action": "metrics.swap",
       "type": "metric",
       "interval": 10
     },
     {
-      "actionid": "metrics.load",
+      "id": "metrics.load",
       "action": "metrics.load",
       "type": "metric",
       "interval": 10
     },
     {
-      "actionid": "metrics.diskio",
+      "id": "metrics.diskio",
       "action": "metrics.diskio",
       "args": ["sda"],
       "type": "metric",

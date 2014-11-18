@@ -1,93 +1,126 @@
 package main
 
 import (
-	"os"
-
-	"github.com/Sirupsen/logrus"
-	"github.com/shirou/mqagent/transport"
-
-	"github.com/codegangsta/cli"
 	"io/ioutil"
+	"os"
+	"strings"
+	"sync"
+
+	log "github.com/Sirupsen/logrus"
+	"github.com/codegangsta/cli"
+
+	"github.com/shirou/mqagent/metric"
+	"github.com/shirou/mqagent/transport"
 )
 
-var log = logrus.New()
 var usage = `
 Usage here
 `
 
-func initFunc() {
-	log.Formatter = new(logrus.TextFormatter)
+var MetricMap map[string]*metric.Metric
+var MetricMapLock *sync.Mutex
+
+func init() {
+	log.SetFormatter(&LTSVFormatter{})
+	log.SetOutput(os.Stderr)
+	log.SetLevel(log.InfoLevel)
+
+	MetricMap = make(map[string]*metric.Metric)
+	MetricMapLock = &sync.Mutex{}
 }
 
 func loadConfig(confPath string) *ClientConfig {
-	cliconfig, err := NewConfig(confPath)
+	conf, err := NewConfig(confPath)
 	if err != nil {
-		log.Errorln(err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
-	user := cliconfig.ServerAuth.Username
-	password := cliconfig.ServerAuth.Password
+	user := conf.ServerAuth.Username
+	password := conf.ServerAuth.Password
 
-	cliconfig.Transport = transport.NewMQTTTransport()
+	conf.Transport = transport.NewMQTTTransport()
 
-	_, err = cliconfig.Transport.Connect(cliconfig.BrokerUri,
-		cliconfig.HostId, user, password)
+	log.Debug(user)
+	log.Debug(conf.BrokerUri)
+
+	_, err = conf.Transport.Connect(conf.BrokerUri,
+		conf.HostId, user, password)
 	if err != nil {
-		log.Errorln(err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
-	return cliconfig
+	return conf
 }
 
 func startAgent(c *cli.Context) {
-	confPath := c.String("c")
-	cliconfig := loadConfig(confPath)
-	toMainChan := make(chan string)
-
-	for _, sub := range cliconfig.Subscriptions {
-		_, err := sub.Subscribe(cliconfig)
-		if err != nil {
-			log.Println(err)
-			log.Println("Skip subscribe: " + sub.Name)
-		}
-		//		go sub.Start(toMainChan)
+	if c.Bool("d") {
+		log.SetLevel(log.DebugLevel)
 	}
 
-	for {
-		fromSub, ok := <-toMainChan
-		if !ok {
-			log.Println("closed")
+	confPath := c.String("c")
+	conf := loadConfig(confPath)
+
+	actionChan := make(chan transport.Message)
+	subChan := make(chan transport.Message)
+
+	for _, sub := range conf.Subscriptions {
+		err := sub.Subscribe(conf, subChan, actionChan)
+		if err != nil {
+			log.Error(err)
+			log.Info("Skip subscribe: " + sub.Name)
 		}
-		log.Println(fromSub)
+	}
+
+	mainDispatcher(conf, subChan, actionChan)
+}
+
+func mainDispatcher(conf *ClientConfig, subChan, actionChan chan transport.Message) {
+	for {
+		select {
+		case sub, ok := <-subChan:
+			if !ok {
+				log.Error("closed")
+			}
+			log.Info(sub, "hogehgoe")
+		case action, ok := <-actionChan:
+			if !ok {
+				log.Error("closed")
+			}
+			topic := strings.Join([]string{conf.TopicRoot,
+				action.Type,
+				action.Destination,
+			}, "/")
+			log.WithFields(log.Fields{
+				"topic": topic,
+			}).Debug("send")
+			conf.Transport.Send(topic, action.Payload, action.Qos)
+		}
 	}
 }
 
 func registerSubscribe(c *cli.Context) {
+	if c.Bool("d") {
+		log.SetLevel(log.DebugLevel)
+	}
 	confPath := c.String("c")
-	cliconfig := loadConfig(confPath)
+	conf := loadConfig(confPath)
 
 	subName := c.String("s")
 	jsonFile := c.String("f")
 
 	content, err := ioutil.ReadFile(jsonFile)
 	if err != nil {
-		log.Errorln(err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
 
-	topic := RoleSubPrefix + "/" + subName
-	log.Printf("Register to %s (file: %s)", topic, jsonFile)
+	topic := strings.Join([]string{conf.TopicRoot, RoleRoot, subName}, "/")
+	log.Infof("Register to %s (file: %s)", topic, jsonFile)
 
-	err = cliconfig.Transport.Send(topic, content, 2)
+	err = conf.Transport.Send(topic, content, 0)
 	if err != nil {
-		log.Errorln(err)
-		os.Exit(1)
+		log.Fatal(err)
 	}
 }
 
 func main() {
-	initFunc()
-
 	app := cli.NewApp()
 	app.Name = "mqagent"
 	app.Usage = usage
@@ -96,7 +129,13 @@ func main() {
 			Name:  "start",
 			Usage: "start agent",
 			Flags: []cli.Flag{
-				cli.StringFlag{"c", "/etc/mqagent/client.conf", "client config path"},
+				cli.BoolFlag{Name: "d", Usage: "verbose"},
+				cli.StringFlag{
+					Name:   "c",
+					Value:  "/etc/mqagent/client.conf",
+					Usage:  "client config path",
+					EnvVar: "MQAGENT_CONF_PATH",
+				},
 			},
 			Action: startAgent,
 		},
@@ -104,9 +143,22 @@ func main() {
 			Name:  "register",
 			Usage: "register subscribe",
 			Flags: []cli.Flag{
-				cli.StringFlag{"c", "/etc/mqagent/client.conf", "client config path"},
-				cli.StringFlag{"s", "", "subscribe name"},
-				cli.StringFlag{"f", "/etc/mqagent/default.json", "subscribed content file"},
+				cli.BoolFlag{Name: "d", Usage: "verbose"},
+				cli.StringFlag{
+					Name:   "c",
+					Value:  "/etc/mqagent/client.conf",
+					Usage:  "client config path",
+					EnvVar: "MQAGENT_CONF_PATH",
+				},
+				cli.StringFlag{
+					Name:  "s",
+					Usage: "subscribe name",
+				},
+				cli.StringFlag{
+					Name:  "f",
+					Value: "/etc/mqagent/default.json",
+					Usage: "subscribed content file",
+				},
 			},
 			Action: registerSubscribe,
 		},

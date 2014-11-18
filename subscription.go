@@ -1,11 +1,15 @@
 package main
 
 import (
-	"errors"
-
 	"encoding/json"
+	"fmt"
+	"strings"
+
 	MQTT "git.eclipse.org/gitroot/paho/org.eclipse.paho.mqtt.golang.git"
+	log "github.com/Sirupsen/logrus"
+
 	"github.com/shirou/mqagent/metric"
+	"github.com/shirou/mqagent/transport"
 )
 
 const (
@@ -13,87 +17,92 @@ const (
 )
 
 type Subscription struct {
-	Name           string
-	ToMainChan     chan string // channel to the main routine
-	FromMainChan   chan string // channel from the main routine
-	FromActionChan chan string
-
-	Conf    *ClientConfig
-	Metrics map[string]*metric.Metric
-	Topic   string
+	Name       string
+	ToMainChan chan transport.Message // channel to the main routine
+	Conf       *ClientConfig
+	Topic      string
+	Metrics    []string
 }
 
 const (
-	TopicRoot     = "/mqvision"
-	RoleSubPrefix = TopicRoot + "/role"
-	RoleSubQos    = 2
+	RoleRoot   = "roles"
+	RoleSubQos = 2
 )
 
-func (sub *Subscription) Subscribe(conf *ClientConfig) (chan string, error) {
-	topic := RoleSubPrefix + "/" + sub.Name
+func (sub *Subscription) Subscribe(conf *ClientConfig, subch, ach chan transport.Message) error {
+	topic := strings.Join([]string{conf.TopicRoot, RoleRoot, sub.Name}, "/")
 
 	if receipt, err := conf.Transport.Subscribe(sub.messageHandler,
 		topic, RoleSubQos); err != nil {
-		return nil, err
+		return err
 	} else {
 		<-receipt
 	}
 
-	log.Printf("Role Subscribed: %s", topic)
+	log.Infof("Role Subscribed: %s", topic)
 
-	sub.ToMainChan = make(chan string)
-	sub.FromActionChan = make(chan string)
+	sub.ToMainChan = ach
 	sub.Conf = conf
 	sub.Topic = topic
-	return sub.ToMainChan, nil
+	return nil
 }
 
 func (sub *Subscription) messageHandler(client *MQTT.MqttClient, msg MQTT.Message) {
-	for actionId, metric := range sub.Metrics {
-		metric.Stop()
-		log.Printf("%s Stopped", actionId)
-	}
-
-	err := sub.ParseRoleConfig(msg.Payload())
+	actions, err := sub.ParseRoleConfig(msg.Payload())
 	if err != nil {
 		log.Error(err)
 		return
 	}
 
-	for actionId, m := range sub.Metrics {
-		log.Printf("Starting: %s", actionId)
-		go m.Start(sub.FromActionChan)
-	}
-}
-func (sub *Subscription) ParseRoleConfig(buf []byte) error {
-	actions := make([]ActionJson, 1)
-	err := json.Unmarshal([]byte(buf), &actions)
-	if err != nil {
-		return err
-	}
-
-	sub.Metrics = make(map[string]*metric.Metric, MAX_METRICS_NUM)
-
 	for _, actionJson := range actions {
 		if actionJson.Type == "" {
 			continue
 		}
-
 		switch actionJson.Type {
 		case "metric":
-			a, err := metric.NewMetric(actionJson.String(),
-				sub.Conf.HostId, sub.Conf.Transport, TopicRoot)
+			a, err := metric.NewMetric(actionJson.Byte(),
+				sub.Conf.HostId, sub.ToMainChan)
 			if err != nil {
 				log.Error(err)
-			} else {
-				// if same actionid, override it. TODO: is it safe?
-				sub.Metrics[actionJson.ActionId] = a
+				continue
 			}
+			// if same actionid over all subscribes, error and skip
+			MetricMapLock.Lock()
+			_, exists := MetricMap[actionJson.Id]
+			if exists {
+				log.Errorf("%s is duplicated at %s", actionJson.Id, sub.Name)
+			} else {
+				log.Infof("subscribing %s", actionJson.Id)
+				MetricMap[actionJson.Id] = a
+			}
+			MetricMapLock.Unlock()
 		default:
-			err := errors.New("No such a action type:" + actionJson.Type)
+			err := fmt.Errorf("No such a action type: %s", actionJson.Type)
 			log.Error(err)
 		}
 	}
 
-	return nil
+	if err != nil {
+		log.Error(err)
+		return
+	}
+
+	for id, m := range MetricMap {
+		if m.Status == metric.StatusStarted {
+			log.Infof("already started: %s", id)
+			continue
+		}
+		log.Infof("Starting: %s", id)
+		go m.Start()
+	}
+
+}
+func (sub *Subscription) ParseRoleConfig(buf []byte) ([]ActionJson, error) {
+	var actions []ActionJson
+	err := json.Unmarshal([]byte(buf), &actions)
+	if err != nil {
+		return actions, err
+	}
+
+	return actions, nil
 }

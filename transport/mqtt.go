@@ -19,9 +19,9 @@ func (m *MQTTTransport) Connect(brokerUri string, clientId string,
 
 	m.Opts = MQTT.NewClientOptions()
 
-	m.Opts.SetBroker(brokerUri)
+	m.Opts.AddBroker(brokerUri)
 	m.Opts.SetClientId(clientId)
-	m.Opts.SetTraceLevel(MQTT.Critical)
+	//	m.Opts.SetTraceLevel(MQTT.Critical)
 	m.Opts.SetUsername(user)
 	m.Opts.SetPassword(password)
 
