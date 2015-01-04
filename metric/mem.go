@@ -5,18 +5,18 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/shirou/gopsutil"
+	"github.com/shirou/gopsutil/mem"
 
 	"github.com/shirou/mqagent/transport"
 )
 
 type Memory struct {
-	LastMemoryStat *gopsutil.VirtualMemoryStat
+	LastMemoryStat *mem.VirtualMemoryStat
 	Data           map[string]string
 }
 
 type SwapMemory struct {
-	LastSwapStat *gopsutil.SwapMemoryStat
+	LastSwapStat *mem.SwapMemoryStat
 	Data         map[string]string
 }
 
@@ -37,7 +37,7 @@ const (
 )
 
 func (m Memory) Update() error {
-	v, err := gopsutil.VirtualMemory()
+	v, err := mem.VirtualMemory()
 	if err != nil {
 		return err
 	}
@@ -62,7 +62,7 @@ func (m Memory) Update() error {
 }
 
 func (m SwapMemory) Update() error {
-	v, err := gopsutil.SwapMemory()
+	v, err := mem.SwapMemory()
 	if err != nil {
 		return err
 	}

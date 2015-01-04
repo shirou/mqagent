@@ -1,14 +1,14 @@
 package metric
 
 import (
-	"github.com/shirou/gopsutil"
+	"github.com/shirou/gopsutil/disk"
 
 	"github.com/shirou/mqagent/transport"
 )
 
 type DiskIO struct {
 	Partitions             []string
-	PrevDiskIOCountersStat map[string]gopsutil.DiskIOCountersStat
+	PrevDiskIOCountersStat map[string]disk.DiskIOCountersStat
 	Data                   map[string]map[string]string
 }
 
@@ -17,7 +17,7 @@ func NewDiskIO(args []string) (DiskIO, error) {
 }
 
 func (m DiskIO) Update() error {
-	v, err := gopsutil.DiskIOCounters()
+	v, err := disk.DiskIOCounters()
 	if err != nil {
 		return err
 	}
